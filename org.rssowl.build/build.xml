@@ -8,7 +8,6 @@
 	<GetHostName />
 	<property file="build_${hostname}.properties" />
 	<property file="build_local.properties" />
-	<property name="eclipse.installation.dir" value="${eclipseDir}"/>
 	<import file="build-files/build_shared.xml"/>
 	
 	<target name="-properties">		
@@ -50,6 +49,7 @@
 	</target>
 		
 	<target name="-prepare.build.host">
+		<property name="eclipse.installation.dir" value="${eclipseDir}"/>
 
 		<antcall target="unpack.eclipse"/>
 		

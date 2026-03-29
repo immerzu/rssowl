@@ -271,12 +271,10 @@ litigation.
          unpack="false"/>
 
    <plugin
-         id="org.eclipse.core.net.win32.x86"
-         os="win32"
+         id="org.rssowl.lib.mozilla.xpcom"
          download-size="0"
          install-size="0"
          version="0.0.0"
-         fragment="true"
          unpack="false"/>
 
    <plugin
@@ -319,6 +317,7 @@ litigation.
    <plugin
          id="org.eclipse.equinox.security.win32.x86"
          os="win32"
+         arch="x86"
          download-size="0"
          install-size="0"
          version="0.0.0"

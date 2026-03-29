@@ -174,7 +174,11 @@ public class CBrowser {
   }
 
   private boolean useMozillaOnWindows() {
-    return Application.IS_WINDOWS && fgMozillaAvailable && !fDisableXulrunner;
+    return Application.IS_WINDOWS && !isWindowsX64() && fgMozillaAvailable && !fDisableXulrunner;
+  }
+
+  private boolean isWindowsX64() {
+    return Application.IS_WINDOWS && "x86_64".equals(Platform.getOSArch()); //$NON-NLS-1$
   }
 
   /**

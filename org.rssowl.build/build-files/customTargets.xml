@@ -73,6 +73,53 @@
 	<!-- Steps to do before fetching the build elements -->
 	<!-- ===================================================================== -->
 	<target name="preFetch">
+		<antcall target="mirrorCurrentWorkspace"/>
+	</target>
+	
+	<target name="mirrorCurrentWorkspace">
+		<property name="workspaceRoot" value="${buildHome}/.."/>
+		<condition property="hasLocalWorkspace" value="true">
+			<available file="${workspaceRoot}/org.rssowl.ui" type="dir"/>
+		</condition>
+		<antcall target="-mirrorCurrentWorkspaceIfAvailable"/>
+	</target>
+	
+	<target name="-mirrorCurrentWorkspaceIfAvailable" if="hasLocalWorkspace">
+		<echo message="Mirroring local Git workspace into ${buildDirectory}"/>
+		<mkdir dir="${buildDirectory}/features"/>
+		<mkdir dir="${buildDirectory}/plugins"/>
+
+		<copy todir="${buildDirectory}/features/org.rssowl" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.feature" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/features/org.rssowl.dependencies" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.feature.dependencies" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/features/org.rssowl.tests" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.feature.tests" excludes="**/.git/**"/>
+		</copy>
+
+		<copy todir="${buildDirectory}/plugins/org.rssowl.core" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.core" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.lib.db4o" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.lib.db4o" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.lib.httpclient" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.lib.httpclient" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.lib.jdom" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.lib.jdom" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.lib.lucene" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.lib.lucene" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.lib.mozilla.xpcom" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.lib.mozilla.xpcom" excludes="**/.git/**"/>
+		</copy>
+		<copy todir="${buildDirectory}/plugins/org.rssowl.ui" overwrite="true">
+			<fileset dir="${workspaceRoot}/org.rssowl.ui" excludes="**/.git/**"/>
+		</copy>
 	</target>
 	<!-- ===================================================================== -->
 	<!-- Steps to do after fetching the build elements -->

@@ -1,0 +1,10 @@
+RSSOwl
+
+Copyright (c) RSSOwl contributors and others.
+
+This installer packages RSSOwl under the terms of the Eclipse Public License 1.0.
+The full license text is available at:
+http://www.rssowl.org/legal/epl-v10.html
+
+This x64 installer contains a bundled Java 8 runtime for launching RSSOwl on
+64-bit Windows systems.
