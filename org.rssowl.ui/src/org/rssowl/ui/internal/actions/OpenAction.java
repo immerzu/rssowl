@@ -56,11 +56,14 @@ public class OpenAction extends Action {
   @Override
   public void run() {
     final IStructuredSelection selection = (IStructuredSelection) fSelectionProvider.getSelection();
+    if (selection == null || selection.isEmpty())
+      return;
+
     BusyIndicator.showWhile(PlatformUI.getWorkbench().getDisplay(), new Runnable() {
       public void run() {
 
-        /* Open in Feedview */
-        OwlUI.openInFeedView(fPage, selection);
+        /* An explicit open action should visibly bring the FeedView forward. */
+        OwlUI.openInFeedView(fPage, selection, true, false);
       }
     });
   }

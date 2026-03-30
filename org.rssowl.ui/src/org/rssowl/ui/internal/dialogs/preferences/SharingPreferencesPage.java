@@ -403,16 +403,32 @@ public class SharingPreferencesPage extends PreferencePage implements IWorkbench
 
   private void onMove(boolean up) {
     TableItem[] items = fViewer.getTable().getItems();
+    if (items.length == 0)
+      return;
+
+    IStructuredSelection selection = (IStructuredSelection) fViewer.getSelection();
+    if (selection.isEmpty())
+      return;
+
     List<ShareProvider> sortedProviders = new ArrayList<ShareProvider>(items.length);
     for (TableItem item : items) {
       sortedProviders.add((ShareProvider) item.getData());
     }
 
-    IStructuredSelection selection = (IStructuredSelection) fViewer.getSelection();
     ShareProvider selectedProvider = (ShareProvider) selection.getFirstElement();
+    if (selectedProvider == null)
+      return;
 
     int[] order = fPreferences.getIntegers(DefaultPreferences.SHARE_PROVIDER_STATE);
     int selectedIndex = sortedProviders.indexOf(selectedProvider);
+    if (selectedIndex < 0)
+      return;
+
+    if (up && selectedIndex == 0)
+      return;
+
+    if (!up && selectedIndex == sortedProviders.size() - 1)
+      return;
 
     /* Move Up */
     if (up && selectedIndex > 0) {

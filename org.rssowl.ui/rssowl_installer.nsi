@@ -29,10 +29,10 @@
  * longer depends on pack200-compressed jars or unpack200.exe.
  *
  * @author bpasero
- * @version 2.2.1
+ * @version 2.2.4
  */
 
-!define VER_DISPLAY "2.2.1"
+!define VER_DISPLAY "2.2.4"
 !define APP_NAME "RSSOwl"
 !define APP_EXE "RSSOwl.exe"
 !define APP_ICON_SOURCE "icons\product\rssowl.ico"

@@ -35,7 +35,9 @@ import org.eclipse.swt.widgets.TreeColumn;
 import org.rssowl.ui.internal.Application;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A wrapper around <code>Tree</code> that allows to apply
@@ -52,6 +54,8 @@ public class CTree {
   private Tree fTree;
   private List<TreeColumn> fCols = new ArrayList<TreeColumn>();
   private boolean fIsFlat = true;
+  private boolean fUpdatingColumns;
+  private final Map<TreeColumn, Integer> fManualFillWeights = new HashMap<TreeColumn, Integer>();
 
   /**
    * @param parent
@@ -106,6 +110,18 @@ public class CTree {
     if (image != null)
       col.setImage(image);
 
+    col.addListener(SWT.Resize, new Listener() {
+      public void handleEvent(Event event) {
+        if (fUpdatingColumns)
+          return;
+
+        TreeColumn resizedColumn = (TreeColumn) event.widget;
+        CColumnLayoutData data = (CColumnLayoutData) resizedColumn.getData(LAYOUT_DATA);
+        if (data != null && data.getSize() == CColumnLayoutData.Size.FILL && !data.isHidden())
+          rememberManualFillWeights();
+      }
+    });
+
     fCols.add(col);
 
     return col;
@@ -140,6 +156,7 @@ public class CTree {
     }
 
     fCols.clear();
+    fManualFillWeights.clear();
   }
 
   private void onTreeResize() {
@@ -169,83 +186,132 @@ public class CTree {
 
     int freeWidth = totalWidth;
     int occupiedWidth = 0;
+    boolean useManualFillLayout = !fManualFillWeights.isEmpty();
 
-    /* Foreach TreeColumn */
-    int totalFillSum = 0;
-    for (int i = 0; i < fCols.size(); i++) {
-      TreeColumn column = fCols.get(i);
-      CColumnLayoutData data = (CColumnLayoutData) column.getData(LAYOUT_DATA);
+    fUpdatingColumns = true;
+    try {
+      /* Foreach TreeColumn */
+      int totalFillSum = 0;
+      for (int i = 0; i < fCols.size(); i++) {
+        TreeColumn column = fCols.get(i);
+        CColumnLayoutData data = (CColumnLayoutData) column.getData(LAYOUT_DATA);
 
-      /* Hide Column */
-      if (data.isHidden()) {
-        column.setWidth(0);
-      }
-
-      /* Fixed with Default Width Hint */
-      else if (data.getSize() == CColumnLayoutData.Size.FIXED && data.getWidthHint() == CColumnLayoutData.DEFAULT) {
-        column.pack();
-        int width = column.getWidth();
-        freeWidth -= width;
-        occupiedWidth += width;
-      }
-
-      /* Fixed with actual Width Hint */
-      else if (data.getSize() == CColumnLayoutData.Size.FIXED) {
-        int widthHint = data.getWidthHint();
-
-        /* Windows: First column in tree always needs extra space for expand/collapse */
-        if (Application.IS_WINDOWS && i == 0) {
-          if (fIsFlat)
-            widthHint += 25;
-          else
-            widthHint += 45;
+        /* Hide Column */
+        if (data.isHidden()) {
+          column.setWidth(0);
         }
 
-        /* Linux: First column in tree always needs extra space for expand/collapse */
-        else if (Application.IS_LINUX && i == 0) {
-          if (fIsFlat)
+        /* Fixed with Default Width Hint */
+        else if (data.getSize() == CColumnLayoutData.Size.FIXED && data.getWidthHint() == CColumnLayoutData.DEFAULT) {
+          column.pack();
+          int width = column.getWidth();
+          freeWidth -= width;
+          occupiedWidth += width;
+        }
+
+        /* Fixed with actual Width Hint */
+        else if (data.getSize() == CColumnLayoutData.Size.FIXED) {
+          int widthHint = data.getWidthHint();
+
+          /* Windows: First column in tree always needs extra space for expand/collapse */
+          if (Application.IS_WINDOWS && i == 0) {
+            if (fIsFlat)
+              widthHint += 25;
+            else
+              widthHint += 45;
+          }
+
+          /* Linux: First column in tree always needs extra space for expand/collapse */
+          else if (Application.IS_LINUX && i == 0) {
+            if (fIsFlat)
+              widthHint += 20;
+            else
+              widthHint += 40;
+          }
+
+          /* Mac: First column in tree always needs extra space for expand/collapse */
+          else if (Application.IS_MAC && i == 0) {
             widthHint += 20;
-          else
-            widthHint += 40;
+          }
+
+          freeWidth -= widthHint;
+          occupiedWidth += widthHint;
+
+          /* Only apply if changed */
+          if (column.getWidth() != widthHint)
+            column.setWidth(widthHint);
         }
 
-        /* Mac: First column in tree always needs extra space for expand/collapse */
-        else if (Application.IS_MAC && i == 0) {
-          widthHint += 20;
+        /* Keep manually resized fill columns at their user-defined width */
+        else if (useManualFillLayout && data.getSize() == CColumnLayoutData.Size.FILL) {
+          int manualWidth = getManualFillWidth(column, data);
+          freeWidth -= manualWidth;
+          occupiedWidth += manualWidth;
+
+          if (column.getWidth() != manualWidth)
+            column.setWidth(manualWidth);
         }
 
-        freeWidth -= widthHint;
-        occupiedWidth += widthHint;
-
-        /* Only apply if changed */
-        if (column.getWidth() != widthHint)
-          column.setWidth(widthHint);
+        /* Sum up the fill ratios for later use */
+        else if (data.getSize() == CColumnLayoutData.Size.FILL) {
+          totalFillSum += getFillWeight(column, data);
+        }
       }
 
-      /* Sum up the fill ratios for later use */
-      else if (data.getSize() == CColumnLayoutData.Size.FILL) {
-        totalFillSum += data.getWidthHint();
+      /* Foreach TreeColumn */
+      for (TreeColumn column : fCols) {
+        CColumnLayoutData data = (CColumnLayoutData) column.getData(LAYOUT_DATA);
+
+        /* Fill available space with ratio */
+        if (!useManualFillLayout && data.getSize() == CColumnLayoutData.Size.FILL) {
+          int colWidth = (freeWidth * getFillWeight(column, data)) / totalFillSum;
+
+          /* Trim if necessary */
+          if (occupiedWidth + colWidth >= totalWidth)
+            colWidth = totalWidth - occupiedWidth;
+
+          occupiedWidth += colWidth;
+
+          /* Only apply if changed */
+          if (column.getWidth() != colWidth)
+            column.setWidth(colWidth);
+        }
       }
+    } finally {
+      fUpdatingColumns = false;
     }
+  }
 
-    /* Foreach TreeColumn */
+  private int getFillWeight(TreeColumn column, CColumnLayoutData data) {
+    Integer manualWidth = fManualFillWeights.get(column);
+    if (manualWidth != null && manualWidth.intValue() > 0)
+      return manualWidth.intValue();
+
+    return data.getWidthHint();
+  }
+
+  private int getManualFillWidth(TreeColumn column, CColumnLayoutData data) {
+    Integer manualWidth = fManualFillWeights.get(column);
+    if (manualWidth != null && manualWidth.intValue() > 0)
+      return manualWidth.intValue();
+
+    int currentWidth = column.getWidth();
+    if (currentWidth > 0)
+      return currentWidth;
+
+    return data.getWidthHint();
+  }
+
+  private void rememberManualFillWeights() {
+    Map<TreeColumn, Integer> updatedWeights = new HashMap<TreeColumn, Integer>();
+
     for (TreeColumn column : fCols) {
       CColumnLayoutData data = (CColumnLayoutData) column.getData(LAYOUT_DATA);
-
-      /* Fill available space with ratio */
-      if (data.getSize() == CColumnLayoutData.Size.FILL) {
-        int colWidth = (freeWidth * data.getWidthHint()) / totalFillSum;
-
-        /* Trim if necessary */
-        if (occupiedWidth + colWidth >= totalWidth)
-          colWidth = totalWidth - occupiedWidth;
-
-        occupiedWidth += colWidth;
-
-        /* Only apply if changed */
-        if (column.getWidth() != colWidth)
-          column.setWidth(colWidth);
-      }
+      if (data != null && data.getSize() == CColumnLayoutData.Size.FILL && !data.isHidden())
+        updatedWeights.put(column, Math.max(1, column.getWidth()));
     }
+
+    fManualFillWeights.clear();
+    fManualFillWeights.putAll(updatedWeights);
   }
 }

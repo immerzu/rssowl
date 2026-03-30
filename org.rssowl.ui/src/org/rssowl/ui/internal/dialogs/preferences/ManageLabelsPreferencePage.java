@@ -248,16 +248,33 @@ public class ManageLabelsPreferencePage extends PreferencePage implements IWorkb
 
   private void onMove(boolean up) {
     TreeItem[] items = fViewer.getTree().getItems();
+    if (items.length == 0)
+      return;
+
+    IStructuredSelection selection = (IStructuredSelection) fViewer.getSelection();
+    if (selection.isEmpty())
+      return;
+
     List<ILabel> sortedLabels = new ArrayList<ILabel>(items.length);
     for (TreeItem item : items) {
       sortedLabels.add((ILabel) item.getData());
     }
 
-    IStructuredSelection selection = (IStructuredSelection) fViewer.getSelection();
     ILabel selectedLabel = (ILabel) selection.getFirstElement();
+    if (selectedLabel == null)
+      return;
+
     int selectedLabelOrder = selectedLabel.getOrder();
     ILabel otherLabel = null;
     int index = sortedLabels.indexOf(selectedLabel);
+    if (index < 0)
+      return;
+
+    if (up && index == 0)
+      return;
+
+    if (!up && index == sortedLabels.size() - 1)
+      return;
 
     /* Move Up */
     if (up && index > 0) {

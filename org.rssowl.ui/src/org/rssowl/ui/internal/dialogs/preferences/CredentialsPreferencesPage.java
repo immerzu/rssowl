@@ -482,6 +482,9 @@ public class CredentialsPreferencesPage extends PreferencePage implements IWorkb
 
   private void onRemove() {
     IStructuredSelection selection = (IStructuredSelection) fViewer.getSelection();
+    if (selection.isEmpty())
+      return;
+
     List<?> credentialsToRemove = selection.toList();
     for (Object obj : credentialsToRemove) {
       CredentialsModelData data = (CredentialsModelData) obj;

@@ -138,6 +138,8 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author bpasero
@@ -174,6 +176,15 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
 
   /* Unique identifier of the <body> element */
   private static final String BODY_ELEMENT_ID = "owlbody"; //$NON-NLS-1$
+
+  /* System property enabling lightweight diagnostics for browser full refresh tracing */
+  private static final String REFRESH_DIAGNOSTICS_PROPERTY = "rssowl.debug.feedRefresh"; //$NON-NLS-1$
+
+  /* Enable lightweight diagnostics for browser full refresh tracing */
+  private static final boolean REFRESH_DIAGNOSTICS_ENABLED = Boolean.getBoolean(REFRESH_DIAGNOSTICS_PROPERTY);
+
+  private static final AtomicLong FG_BROWSER_REFRESH_SEQUENCE = new AtomicLong();
+  private static final AtomicBoolean FG_REFRESH_DIAGNOSTICS_CONFIG_LOGGED = new AtomicBoolean();
 
   private Object fInput;
   private CBrowser fBrowser;
@@ -337,6 +348,7 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
    * {@link FeedView} or <code>null</code> otherwise.
    */
   public NewsBrowserViewer(Composite parent, int style, IFeedViewSite site) {
+    logRefreshDiagnosticsConfigurationOnce();
     fBrowser = new CBrowser(parent, style);
     fBrowser.setCanOpenLinksInTabs(true);
     fViewModel = new NewsBrowserViewModel(this);
@@ -1641,10 +1653,7 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
    */
   @Override
   public void refresh() {
-    if (!fBlockRefresh) {
-      fBrowser.refresh();
-      onRefresh();
-    }
+    refreshInternal(resolveRefreshTrigger());
   }
 
   /**
@@ -1671,7 +1680,7 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
         fBrowser.execute("scroll(0,0);", "refresh"); //$NON-NLS-1$ //$NON-NLS-2$
 
       /* Refresh */
-      refresh();
+      refreshInternal("refresh(restoreInput=" + restoreInput + ", moveToTop=" + moveToTop + ')'); //$NON-NLS-1$ //$NON-NLS-2$
     }
   }
 
@@ -2230,13 +2239,18 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
     assertElementsNotNull(childElements);
 
     if (childElements.length > 0)
-      refresh(); // TODO Optimize
+      refreshInternal("add(children=" + childElements.length + ')'); //$NON-NLS-1$
   }
 
   /**
    * @param news
    */
   public void update(Collection<NewsEvent> news) {
+    if (news == null || news.isEmpty()) {
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage(0L, "update-empty", 0L, "skipped=true")); //$NON-NLS-1$ //$NON-NLS-2$
+      return;
+    }
 
     /*
      * The update-event could have been sent out a lot faster than the Browser
@@ -2248,7 +2262,7 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
     boolean resetInput = browserUrl.length() == 0 || URIUtils.ABOUT_BLANK.equals(browserUrl);
     if (inputUrl.equals(browserUrl)) {
       if (!internalUpdate(news))
-        refresh(); // Refresh if dynamic update failed
+        refreshInternal("update-fallback(events=" + news.size() + ')'); // Refresh if dynamic update failed //$NON-NLS-1$
     } else if (fServer.isDisplayOperation(inputUrl) && resetInput)
       fBrowser.setUrl(inputUrl);
   }
@@ -2259,9 +2273,15 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
   public void remove(Object[] objects) {
     assertElementsNotNull(objects);
 
+    if (objects.length == 0) {
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage(0L, "remove-empty", 0L, "skipped=true")); //$NON-NLS-1$ //$NON-NLS-2$
+      return;
+    }
+
     /* Refresh if dynamic removal failed */
     if (!internalRemove(objects))
-      refresh();
+      refreshInternal("remove-fallback(count=" + objects.length + ')'); //$NON-NLS-1$
   }
 
   /**
@@ -2272,7 +2292,76 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
 
     /* Refresh if dynamic removal failed */
     if (!internalRemove(new Object[] { element }))
-      refresh();
+      refreshInternal("remove-single-fallback"); //$NON-NLS-1$
+  }
+
+  private void refreshInternal(String reason) {
+    if (fBlockRefresh)
+      return;
+
+    long sequence = 0L;
+    long started = 0L;
+    if (REFRESH_DIAGNOSTICS_ENABLED) {
+      sequence = FG_BROWSER_REFRESH_SEQUENCE.incrementAndGet();
+      started = System.currentTimeMillis();
+    }
+
+    if (shouldSkipFullRefresh()) {
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage(sequence, reason, 0L, "skipped=true state=empty-browser")); //$NON-NLS-1$
+      return;
+    }
+
+    fBrowser.refresh();
+    onRefresh();
+
+    if (REFRESH_DIAGNOSTICS_ENABLED)
+      Activator.safeLogInfo(createRefreshLogMessage(sequence, reason, System.currentTimeMillis() - started, null));
+  }
+
+  boolean shouldSkipFullRefresh() {
+    if (fInput != null)
+      return false;
+
+    String browserUrl = fBrowser.getControl().getUrl();
+    return browserUrl.length() == 0 || URIUtils.ABOUT_BLANK.equals(browserUrl);
+  }
+
+  private String resolveRefreshTrigger() {
+    if (!REFRESH_DIAGNOSTICS_ENABLED)
+      return null;
+
+    StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+    for (StackTraceElement element : stack) {
+      String className = element.getClassName();
+      if (Thread.class.getName().equals(className) || NewsBrowserViewer.class.getName().equals(className))
+        continue;
+
+      return className + '#' + element.getMethodName() + ':' + element.getLineNumber();
+    }
+
+    return "unknown"; //$NON-NLS-1$
+  }
+
+  private String createRefreshLogMessage(long sequence, String reason, long duration, String details) {
+    StringBuilder message = new StringBuilder();
+    message.append("[feed-refresh] NewsBrowserViewer.refresh #"); //$NON-NLS-1$
+    message.append(sequence);
+    message.append(" reason="); //$NON-NLS-1$
+    message.append(reason != null ? reason : "unspecified"); //$NON-NLS-1$
+    message.append(" duration="); //$NON-NLS-1$
+    message.append(duration);
+    message.append("ms"); //$NON-NLS-1$
+    if (details != null && details.length() > 0) {
+      message.append(' ');
+      message.append(details);
+    }
+    return message.toString();
+  }
+
+  private static void logRefreshDiagnosticsConfigurationOnce() {
+    if (FG_REFRESH_DIAGNOSTICS_CONFIG_LOGGED.compareAndSet(false, true))
+      Activator.safeLogInfo("[feed-refresh] NewsBrowserViewer.diagnostics property=" + REFRESH_DIAGNOSTICS_PROPERTY + " enabled=" + REFRESH_DIAGNOSTICS_ENABLED); //$NON-NLS-1$ //$NON-NLS-2$
   }
 
   private boolean internalUpdate(Collection<NewsEvent> newsEvents) {

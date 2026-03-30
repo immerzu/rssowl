@@ -97,6 +97,9 @@ public class EditorUtils {
    */
   public static void updateFilterAndGrouping(FeedView exception) {
     List<FeedView> feedViews = OwlUI.getFeedViews();
+    if (feedViews.isEmpty())
+      return;
+
     for (FeedView feedView : feedViews) {
       if (!feedView.equals(exception))
         feedView.updateFilterAndGrouping(true);
@@ -108,6 +111,9 @@ public class EditorUtils {
    */
   public static void updateLayout() {
     List<FeedView> feedViews = OwlUI.getFeedViews();
+    if (feedViews.isEmpty())
+      return;
+
     for (FeedView feedView : feedViews) {
       feedView.updateLayout();
     }
@@ -118,6 +124,9 @@ public class EditorUtils {
    */
   public static void updateColumns() {
     List<FeedView> feedViews = OwlUI.getFeedViews();
+    if (feedViews.isEmpty())
+      return;
+
     for (FeedView feedView : feedViews) {
       feedView.updateColumns();
     }
@@ -128,6 +137,9 @@ public class EditorUtils {
    */
   public static void updateToolbarVisibility() {
     List<FeedView> feedViews = OwlUI.getFeedViews();
+    if (feedViews.isEmpty())
+      return;
+
     for (FeedView feedView : feedViews) {
       feedView.updateToolbarVisibility();
     }

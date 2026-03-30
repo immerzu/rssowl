@@ -207,6 +207,9 @@ public class LongArrayList {
    * @param list the {@link LongArrayList} with values to remove from this list.
    */
   public void removeAll(LongArrayList list) { //TODO This can be slow, try to optimize
+    if (isEmpty() || list.isEmpty())
+      return;
+
     for (long element : list.fElements)
       removeByElement(element);
   }

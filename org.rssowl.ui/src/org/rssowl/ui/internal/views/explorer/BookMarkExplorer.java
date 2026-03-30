@@ -62,6 +62,7 @@ import org.eclipse.swt.events.ModifyEvent;
 import org.eclipse.swt.events.ModifyListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
@@ -73,6 +74,7 @@ import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.Tree;
+import org.eclipse.swt.widgets.TreeItem;
 import org.eclipse.ui.IActionDelegate;
 import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
@@ -115,7 +117,9 @@ import org.rssowl.core.util.ITreeNode;
 import org.rssowl.core.util.ModelTreeNode;
 import org.rssowl.core.util.StringUtils;
 import org.rssowl.core.util.TreeTraversal;
+import org.rssowl.ui.internal.Application;
 import org.rssowl.ui.internal.ApplicationWorkbenchWindowAdvisor;
+import org.rssowl.ui.internal.Activator;
 import org.rssowl.ui.internal.ContextMenuCreator;
 import org.rssowl.ui.internal.Controller;
 import org.rssowl.ui.internal.EntityGroup;
@@ -178,6 +182,7 @@ public class BookMarkExplorer extends ViewPart {
   private static final String PREF_SELECTED_FOLDER_CHILD = "org.rssowl.ui.internal.views.explorer.SelectedFolderChild"; //$NON-NLS-1$
   private static final String PREF_SELECTED_BOOKMARK_SET = "org.rssowl.ui.internal.views.explorer.SelectedBookMarkSet"; //$NON-NLS-1$
   private static final String PREF_EXPANDED_NODES = "org.rssowl.ui.internal.views.explorer.ExpandedNodes"; //$NON-NLS-1$
+  private static final String DEBUG_BOOKMARK_STATE_PROPERTY = "rssowl.debug.bookmarkState"; //$NON-NLS-1$
 
   /* Local Actions */
   private static final String GROUP_ACTION = "org.rssowl.ui.internal.views.explorer.GroupAction"; //$NON-NLS-1$
@@ -221,6 +226,7 @@ public class BookMarkExplorer extends ViewPart {
   private IPreferenceDAO fPrefDAO;
   private IPropertyChangeListener fPropertyChangeListener;
   private boolean fBlockSaveState;
+  private boolean fHasStoredExpandedState;
   private BookMarkFilter.Type fLastFilterType;
   private BookMarkGrouping.Type fLastGroupType;
 
@@ -257,6 +263,9 @@ public class BookMarkExplorer extends ViewPart {
 
     /* Restore Expanded Elements */
     restoreExpandedElements();
+    fViewer.setExpandedState(fSelectedBookMarkSet, true);
+    restoreDefaultExpandedElement();
+    restoreDefaultExpandedElementAsync();
 
     /* Restore Selection if linking is disabled */
     if (fLastSelectedFolderChild > 0 && !fLinkingEnabled)
@@ -347,7 +356,40 @@ public class BookMarkExplorer extends ViewPart {
     /* Hook Open Support */
     fViewer.addOpenListener(new IOpenListener() {
       public void open(OpenEvent event) {
-        OwlUI.openInFeedView(fViewSite.getPage(), (IStructuredSelection) fViewer.getSelection());
+        openSelectionInFeedView((IStructuredSelection) event.getSelection());
+      }
+    });
+
+    /*
+     * Explicitly toggle expandable nodes on double-click so folders and groups
+     * behave consistently even when the custom open strategy handles the open
+     * event.
+     */
+    fViewer.getTree().addListener(SWT.MouseDoubleClick, new Listener() {
+      public void handleEvent(Event event) {
+        Tree tree = fViewer.getTree();
+        if (tree.isDisposed())
+          return;
+
+        TreeItem item = tree.getItem(new Point(event.x, event.y));
+        if (item == null)
+          return;
+
+        Object data = item.getData();
+        if (data == null || !fContentProvider.hasChildren(data))
+          return;
+
+        fViewer.setExpandedState(data, !fViewer.getExpandedState(data));
+      }
+    });
+
+    /*
+     * Restore keyboard focus on any direct tree click as well, because clicking
+     * an already selected node does not fire a new selectionChanged event.
+     */
+    fViewer.getTree().addListener(SWT.MouseDown, new Listener() {
+      public void handleEvent(Event event) {
+        restoreTreeFocusAsync();
       }
     });
 
@@ -369,6 +411,25 @@ public class BookMarkExplorer extends ViewPart {
 
       public void treeCollapsed(TreeExpansionEvent event) {
         onTreeEvent(event.getElement(), false);
+      }
+    });
+
+    /*
+     * Listen to native tree expand/collapse events as well, because the top
+     * "My Feeds" node is user-expanded via the widget and did not reliably
+     * reach the viewer-level tree listener in our restart tests.
+     */
+    fViewer.getTree().addListener(SWT.Expand, new Listener() {
+      public void handleEvent(Event event) {
+        if (event.item instanceof TreeItem)
+          onTreeEvent(((TreeItem) event.item).getData(), true);
+      }
+    });
+
+    fViewer.getTree().addListener(SWT.Collapse, new Listener() {
+      public void handleEvent(Event event) {
+        if (event.item instanceof TreeItem)
+          onTreeEvent(((TreeItem) event.item).getData(), false);
       }
     });
 
@@ -395,27 +456,84 @@ public class BookMarkExplorer extends ViewPart {
 
   private void onSelectionChanged(SelectionChangedEvent event) {
     fLastSelection = (IStructuredSelection) event.getSelection();
+
+    boolean explorerWasActive = this == fViewSite.getPage().getActivePart();
     if (fLinkingEnabled)
       linkToFeedView(fLastSelection);
+
+    if (explorerWasActive)
+      restoreTreeFocusAsync();
+  }
+
+  private void openSelectionInFeedView(IStructuredSelection selection) {
+    if (selection == null || selection.isEmpty())
+      return;
+
+    OwlUI.openInFeedView(fViewSite.getPage(), selection, true, false);
+  }
+
+  private void deleteSelection() {
+    fViewer.getControl().getParent().setRedraw(false);
+    try {
+      new DeleteTypesAction(fViewer.getControl().getShell(), (IStructuredSelection) fViewer.getSelection()).run();
+    } finally {
+      fViewer.getControl().getParent().setRedraw(true);
+    }
+  }
+
+  private void restoreTreeFocusAsync() {
+    final Control control = fViewer.getControl();
+    if (control == null || control.isDisposed())
+      return;
+
+    control.getDisplay().asyncExec(new Runnable() {
+      public void run() {
+        if (!control.isDisposed())
+          control.setFocus();
+      }
+    });
   }
 
   private void onTreeEvent(Object element, boolean expanded) {
 
     /* Element expanded - add to List of expanded Nodes */
     if (expanded) {
-      if (element instanceof IFolder)
-        fExpandedNodes.add(((IFolder) element).getId());
-      else if (element instanceof EntityGroup)
-        fExpandedNodes.add(((EntityGroup) element).getId());
+      if (element instanceof IFolder) {
+        Long id = ((IFolder) element).getId();
+        if (!fExpandedNodes.contains(id))
+          fExpandedNodes.add(id);
+      }
+      else if (element instanceof EntityGroup) {
+        Long id = ((EntityGroup) element).getId();
+        if (!fExpandedNodes.contains(id))
+          fExpandedNodes.add(id);
+      }
     }
 
     /* Element collapsed - remove from List of expanded Nodes */
     else {
-      if (element instanceof IFolder)
-        fExpandedNodes.remove(((IFolder) element).getId());
-      else if (element instanceof EntityGroup)
-        fExpandedNodes.remove(((EntityGroup) element).getId());
+      if (element instanceof IFolder) {
+        Long id = ((IFolder) element).getId();
+        while (fExpandedNodes.remove(id)) {
+          // Remove all duplicates conservatively.
+        }
+      }
+      else if (element instanceof EntityGroup) {
+        Long id = ((EntityGroup) element).getId();
+        while (fExpandedNodes.remove(id)) {
+          // Remove all duplicates conservatively.
+        }
+      }
     }
+
+    /*
+     * Persist expansion changes right away as well, because the window may be
+     * hidden or reused without triggering a final dispose() immediately.
+     */
+    if (!fBlockSaveState)
+      saveExpandedElements();
+
+    logBookmarkState("tree-event expanded=" + expanded + ", element=" + describeElement(element) + ", set=" + describeElement(fSelectedBookMarkSet) + ", expandedNodes=" + fExpandedNodes); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
   }
 
   /*
@@ -496,8 +614,11 @@ public class BookMarkExplorer extends ViewPart {
       IWorkbenchPage activePage = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
       IEditorReference[] editorReferences = activePage.getEditorReferences();
       IEditorReference reference = EditorUtils.findEditor(editorReferences, element);
-      if (reference != null)
+      if (reference != null) {
         activePage.bringToTop(reference.getPart(true));
+        if (fViewer != null && fViewer.getControl() != null && !fViewer.getControl().isDisposed())
+          fViewer.getControl().setFocus();
+      }
     }
   }
 
@@ -563,9 +684,12 @@ public class BookMarkExplorer extends ViewPart {
     fViewer.getControl().setRedraw(false);
     try {
       restoreExpandedElements();
+      fViewer.setExpandedState(fSelectedBookMarkSet, true);
+      restoreDefaultExpandedElement();
     } finally {
       fViewer.getControl().setRedraw(true);
     }
+    restoreDefaultExpandedElementAsync();
 
     /* Update Set Actions */
     fViewSite.getActionBars().getToolBarManager().find(PREVIOUS_SET_ACTION).update(IAction.ENABLED);
@@ -604,6 +728,11 @@ public class BookMarkExplorer extends ViewPart {
     fViewer.getControl().addKeyListener(new KeyAdapter() {
       @Override
       public void keyPressed(KeyEvent e) {
+        if (e.character == SWT.DEL || e.keyCode == SWT.DEL || (Application.IS_MAC && (e.character == SWT.BS || e.keyCode == SWT.BS))) {
+          deleteSelection();
+          e.doit = false;
+          return;
+        }
 
         /* Feature not Used, return */
         if (!fBeginSearchOnTyping)
@@ -736,7 +865,12 @@ public class BookMarkExplorer extends ViewPart {
               fBookMarkComparator.setType(BookMarkSorter.Type.SORT_BY_NAME);
             else
               fBookMarkComparator.setType(BookMarkSorter.Type.DEFAULT_SORTING);
-            fViewer.refresh(false);
+            fViewer.getTree().setRedraw(false);
+            try {
+              fViewer.refresh(false);
+            } finally {
+              fViewer.getTree().setRedraw(true);
+            }
 
             /* Save directly to global scope */
             fGlobalPreferences.putBoolean(DefaultPreferences.BE_SORT_BY_NAME, fSortByName);
@@ -1087,10 +1221,15 @@ public class BookMarkExplorer extends ViewPart {
 
     /* Change Filter Type */
     fBookMarkFilter.setType(type);
-    fViewer.refresh(false);
+    fViewer.getControl().setRedraw(false);
+    try {
+      fViewer.refresh(false);
 
-    /* Restore Expanded Elements */
-    restoreExpandedElements();
+      /* Restore Expanded Elements */
+      restoreExpandedElements();
+    } finally {
+      fViewer.getControl().setRedraw(true);
+    }
 
     /* Update Image */
     fToolBarManager.find(FILTER_ACTION).update(IAction.IMAGE);
@@ -1116,13 +1255,18 @@ public class BookMarkExplorer extends ViewPart {
 
     /* Refresh w/o updating Labels */
     fBookMarkGrouping.setType(type);
-    fViewer.refresh(false);
+    fViewer.getControl().setRedraw(false);
+    try {
+      fViewer.refresh(false);
 
-    /* Restore Sorter */
-    fBookMarkComparator.setType(fSortByName ? BookMarkSorter.Type.SORT_BY_NAME : BookMarkSorter.Type.DEFAULT_SORTING);
+      /* Restore Sorter */
+      fBookMarkComparator.setType(fSortByName ? BookMarkSorter.Type.SORT_BY_NAME : BookMarkSorter.Type.DEFAULT_SORTING);
 
-    /* Restore expanded Elements */
-    restoreExpandedElements();
+      /* Restore expanded Elements */
+      restoreExpandedElements();
+    } finally {
+      fViewer.getControl().setRedraw(true);
+    }
 
     /* Update Image */
     fToolBarManager.find(GROUP_ACTION).update(IAction.IMAGE);
@@ -1494,12 +1638,7 @@ public class BookMarkExplorer extends ViewPart {
     fViewSite.getActionBars().setGlobalActionHandler(ActionFactory.DELETE.getId(), new Action() {
       @Override
       public void run() {
-        fViewer.getControl().getParent().setRedraw(false);
-        try {
-          new DeleteTypesAction(fViewer.getControl().getShell(), (IStructuredSelection) fViewer.getSelection()).run();
-        } finally {
-          fViewer.getControl().getParent().setRedraw(true);
-        }
+        deleteSelection();
       }
     });
 
@@ -1626,9 +1765,9 @@ public class BookMarkExplorer extends ViewPart {
    */
   @Override
   public void dispose() {
-    super.dispose();
-    unregisterListeners();
     saveState();
+    unregisterListeners();
+    super.dispose();
   }
 
   /**
@@ -1810,6 +1949,8 @@ public class BookMarkExplorer extends ViewPart {
    * Save all Settings of the Explorer immediately.
    */
   public void saveState() {
+    if (fBlockSaveState)
+      return;
 
     /* Expanded Elements */
     saveExpandedElements();
@@ -1825,18 +1966,22 @@ public class BookMarkExplorer extends ViewPart {
       fGlobalPreferences.delete(PREF_SELECTED_FOLDER_CHILD);
 
     /* Misc. Settings */
-    if (!fBlockSaveState) {
-      fGlobalPreferences.putBoolean(DefaultPreferences.BE_BEGIN_SEARCH_ON_TYPING, fBeginSearchOnTyping);
-      fGlobalPreferences.putBoolean(DefaultPreferences.BE_ALWAYS_SHOW_SEARCH, fAlwaysShowSearch);
-      fGlobalPreferences.putBoolean(DefaultPreferences.BE_SORT_BY_NAME, fSortByName);
-      fGlobalPreferences.putBoolean(DefaultPreferences.BE_ENABLE_LINKING, fLinkingEnabled);
-      fGlobalPreferences.putBoolean(DefaultPreferences.BE_DISABLE_FAVICONS, !fFaviconsEnabled);
-      fGlobalPreferences.putInteger(DefaultPreferences.BE_FILTER_TYPE, fBookMarkFilter.getType().ordinal());
-      fGlobalPreferences.putInteger(DefaultPreferences.BE_GROUP_TYPE, fBookMarkGrouping.getType().ordinal());
-    }
+    fGlobalPreferences.putBoolean(DefaultPreferences.BE_BEGIN_SEARCH_ON_TYPING, fBeginSearchOnTyping);
+    fGlobalPreferences.putBoolean(DefaultPreferences.BE_ALWAYS_SHOW_SEARCH, fAlwaysShowSearch);
+    fGlobalPreferences.putBoolean(DefaultPreferences.BE_SORT_BY_NAME, fSortByName);
+    fGlobalPreferences.putBoolean(DefaultPreferences.BE_ENABLE_LINKING, fLinkingEnabled);
+    fGlobalPreferences.putBoolean(DefaultPreferences.BE_DISABLE_FAVICONS, !fFaviconsEnabled);
+    fGlobalPreferences.putInteger(DefaultPreferences.BE_FILTER_TYPE, fBookMarkFilter.getType().ordinal());
+    fGlobalPreferences.putInteger(DefaultPreferences.BE_GROUP_TYPE, fBookMarkGrouping.getType().ordinal());
   }
 
   private void saveExpandedElements() {
+    Tree tree = fViewer != null ? fViewer.getTree() : null;
+    if (tree != null && !tree.isDisposed()) {
+      fExpandedNodes.clear();
+      collectExpandedNodeIds(tree.getItems());
+    }
+
     int i = 0;
     long elements[] = new long[fExpandedNodes.size()];
     for (Object element : fExpandedNodes) {
@@ -1849,6 +1994,24 @@ public class BookMarkExplorer extends ViewPart {
     IPreference pref = fPrefDAO.loadOrCreate(key);
     pref.putLongs(elements);
     fPrefDAO.save(pref);
+    logBookmarkState("save-expanded key=" + key + ", set=" + describeElement(fSelectedBookMarkSet) + ", expandedNodes=" + fExpandedNodes + ", treeItems=" + (tree != null && !tree.isDisposed() ? tree.getItemCount() : -1)); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+  }
+
+  private void collectExpandedNodeIds(TreeItem[] items) {
+    for (TreeItem item : items) {
+      if (item == null || item.isDisposed())
+        continue;
+
+      Object data = item.getData();
+      if (item.getExpanded()) {
+        if (data instanceof IFolder)
+          fExpandedNodes.add(((IFolder) data).getId());
+        else if (data instanceof EntityGroup)
+          fExpandedNodes.add(((EntityGroup) data).getId());
+      }
+
+      collectExpandedNodeIds(item.getItems());
+    }
   }
 
   private void loadState() {
@@ -1885,20 +2048,91 @@ public class BookMarkExplorer extends ViewPart {
 
   /* Expanded Elements - Use ID of selected Set to make it Unique */
   private void loadExpandedElements() {
-    IPreference pref = fPrefDAO.load(PREF_EXPANDED_NODES + fSelectedBookMarkSet.getId());
+    String key = PREF_EXPANDED_NODES + fSelectedBookMarkSet.getId();
+    IPreference pref = fPrefDAO.load(key);
+    fExpandedNodes.clear();
     if (pref != null) {
       for (long element : pref.getLongs())
         fExpandedNodes.add(element);
     }
+    fHasStoredExpandedState = !fExpandedNodes.isEmpty();
+    logBookmarkState("load-expanded key=" + key + ", set=" + describeElement(fSelectedBookMarkSet) + ", hasStored=" + fHasStoredExpandedState + ", expandedNodes=" + fExpandedNodes); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+  }
+
+  private void restoreDefaultExpandedElement() {
+    if (fHasStoredExpandedState)
+      return;
+
+    Tree tree = fViewer.getTree();
+    if (tree == null || tree.isDisposed() || tree.getItemCount() != 1)
+      return;
+
+    TreeItem item = tree.getItem(0);
+    Object data = item.getData();
+    if (!(data instanceof IFolder) || !fContentProvider.hasChildren(data))
+      return;
+
+    fViewer.setExpandedState(data, true);
+    onTreeEvent(data, true);
+    logBookmarkState("restore-default element=" + describeElement(data)); //$NON-NLS-1$
+  }
+
+  private void restoreDefaultExpandedElementAsync() {
+    final Control control = fViewer.getControl();
+    if (fHasStoredExpandedState || control == null || control.isDisposed())
+      return;
+
+    control.getDisplay().asyncExec(new Runnable() {
+      public void run() {
+        if (!control.isDisposed())
+          restoreDefaultExpandedElement();
+      }
+    });
   }
 
   void restoreExpandedElements() {
-    for (Long expandedNodeId : fExpandedNodes) {
-      if (fBookMarkGrouping.getType() == BookMarkGrouping.Type.NO_GROUPING)
-        fViewer.setExpandedState(new FolderReference(expandedNodeId), true);
-      else
-        fViewer.setExpandedState(new EntityGroup(expandedNodeId, BookMarkGrouping.GROUP_CATEGORY_ID), true);
+    Tree tree = fViewer.getTree();
+    if (tree != null && !tree.isDisposed())
+      restoreExpandedElements(tree.getItems());
+    logBookmarkState("restore-expanded set=" + describeElement(fSelectedBookMarkSet) + ", grouping=" + fBookMarkGrouping.getType() + ", expandedNodes=" + fExpandedNodes); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+  }
+
+  private void restoreExpandedElements(TreeItem[] items) {
+    for (TreeItem item : items) {
+      if (item == null || item.isDisposed())
+        continue;
+
+      Object data = item.getData();
+      if (shouldExpand(data)) {
+        fViewer.setExpandedState(data, true);
+        restoreExpandedElements(item.getItems());
+      }
     }
+  }
+
+  private boolean shouldExpand(Object data) {
+    if (data instanceof IFolder)
+      return fExpandedNodes.contains(((IFolder) data).getId());
+
+    if (data instanceof EntityGroup)
+      return fExpandedNodes.contains(((EntityGroup) data).getId());
+
+    return false;
+  }
+
+  private void logBookmarkState(String message) {
+    if (Boolean.getBoolean(DEBUG_BOOKMARK_STATE_PROPERTY))
+      Activator.safeLogInfo("[bookmark-state] " + message); //$NON-NLS-1$
+  }
+
+  private String describeElement(Object element) {
+    if (element instanceof IEntity)
+      return element.getClass().getSimpleName() + "#" + ((IEntity) element).getId(); //$NON-NLS-1$
+    if (element instanceof ModelReference)
+      return element.getClass().getSimpleName() + "#" + ((ModelReference) element).getId(); //$NON-NLS-1$
+    if (element instanceof EntityGroup)
+      return element.getClass().getSimpleName() + "#" + ((EntityGroup) element).getId(); //$NON-NLS-1$
+    return String.valueOf(element);
   }
 
   private IFolder getParent(IStructuredSelection selection) {

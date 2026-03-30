@@ -167,11 +167,25 @@ public class FeedView extends EditorPart implements IReusableEditor {
   /* Delay in millies to safely operate on the browser content */
   private static final int BROWSER_OPERATIONS_DELAY = 100;
 
+  /* Millies in which a direct browser refresh is considered covered by a just finished full refresh */
+  private static final int BROWSER_REFRESH_CHAIN_GUARD_DELAY = 250;
+
   /* Millies before the next clean up is allowed to run again */
   private static final int CLEAN_UP_BLOCK_DELAY = 1000;
 
   /* System Property indicating the separator to use for CSV files */
   private static final String CSV_SEPARATOR_PROPERTY = "csvSeparator"; //$NON-NLS-1$
+
+  /* System property enabling lightweight diagnostics for full refresh tracing */
+  private static final String REFRESH_DIAGNOSTICS_PROPERTY = "rssowl.debug.feedRefresh"; //$NON-NLS-1$
+
+  /* Enable lightweight diagnostics for full refresh tracing */
+  private static final boolean REFRESH_DIAGNOSTICS_ENABLED = Boolean.getBoolean(REFRESH_DIAGNOSTICS_PROPERTY);
+
+  private static final AtomicLong FG_REFRESH_SEQUENCE = new AtomicLong();
+  private static final AtomicLong FG_TABLE_REFRESH_SEQUENCE = new AtomicLong();
+  private static final AtomicLong FG_BROWSER_REFRESH_SEQUENCE = new AtomicLong();
+  private static final AtomicBoolean FG_REFRESH_DIAGNOSTICS_CONFIG_LOGGED = new AtomicBoolean();
 
   /* The last visible Feedview */
   private static FeedView fgLastVisibleFeedView = null;
@@ -272,6 +286,9 @@ public class FeedView extends EditorPart implements IReusableEditor {
   private final INewsDAO fNewsDao = Owl.getPersistenceService().getDAOService().getNewsDAO();
   private boolean fIsDisposed;
   private AtomicLong fLastCleanUpRun = new AtomicLong();
+  private boolean fBrowserRefreshCoveredByFullRefresh;
+  private long fLastCoveredBrowserRefreshTime;
+  private String fLastCoveredBrowserRefreshState;
 
   /*
    * @see org.eclipse.ui.part.EditorPart#doSave(org.eclipse.core.runtime.IProgressMonitor)
@@ -1236,17 +1253,34 @@ public class FeedView extends EditorPart implements IReusableEditor {
   public void updateFilterAndGrouping(boolean refresh) {
     IPreferenceScope preferences = Owl.getPreferenceService().getEntityScope(fInput.getMark());
     int iVal = preferences.getInteger(DefaultPreferences.BM_NEWS_FILTERING);
+    NewsFilter.Type filterType;
     if (iVal >= 0)
-      fFilterBar.doFilter(NewsFilter.Type.values()[iVal], refresh, false);
+      filterType = NewsFilter.Type.values()[iVal];
     else
-      fFilterBar.doFilter(NewsFilter.Type.values()[fPreferences.getInteger(DefaultPreferences.FV_FILTER_TYPE)], refresh, false);
+      filterType = NewsFilter.Type.values()[fPreferences.getInteger(DefaultPreferences.FV_FILTER_TYPE)];
 
     /* Load Group Settings for this Mark if present */
     iVal = preferences.getInteger(DefaultPreferences.BM_NEWS_GROUPING);
+    NewsGrouping.Type groupingType;
     if (iVal >= 0)
-      fFilterBar.doGrouping(NewsGrouping.Type.values()[iVal], refresh, false);
+      groupingType = NewsGrouping.Type.values()[iVal];
     else
-      fFilterBar.doGrouping(NewsGrouping.Type.values()[fPreferences.getInteger(DefaultPreferences.FV_GROUP_TYPE)], refresh, false);
+      groupingType = NewsGrouping.Type.values()[fPreferences.getInteger(DefaultPreferences.FV_GROUP_TYPE)];
+
+    boolean filterChanged = fNewsFilter.getType() != filterType;
+    boolean groupingChanged = fNewsGrouping.getType() != groupingType;
+
+    if (refresh && filterChanged && groupingChanged) {
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage("FeedView.updateFilterAndGrouping", FG_REFRESH_SEQUENCE.incrementAndGet(), resolveRefreshTrigger(), 0L, "refresh=true skipped=true reason=grouping-refresh-covered-by-filter filter=" + filterType + ", grouping=" + groupingType)); //$NON-NLS-1$ //$NON-NLS-2$
+
+      fFilterBar.doGrouping(groupingType, false, false);
+      fFilterBar.doFilter(filterType, true, false);
+      return;
+    }
+
+    fFilterBar.doFilter(filterType, refresh, false);
+    fFilterBar.doGrouping(groupingType, refresh, false);
   }
 
   /**
@@ -1963,8 +1997,28 @@ public class FeedView extends EditorPart implements IReusableEditor {
    * @param updateLabels If <code>TRUE</code> update all Labels.
    */
   void refresh(boolean delayRedraw, boolean updateLabels) {
+    long started = 0L;
+    long sequence = 0L;
+    String trigger = null;
+
+    if (REFRESH_DIAGNOSTICS_ENABLED) {
+      started = System.currentTimeMillis();
+      sequence = FG_REFRESH_SEQUENCE.incrementAndGet();
+      trigger = resolveRefreshTrigger();
+    }
+
     refreshTableViewer(delayRedraw, updateLabels);
-    refreshBrowserViewer();
+    fBrowserRefreshCoveredByFullRefresh = true;
+    try {
+      refreshBrowserViewer();
+    } finally {
+      fBrowserRefreshCoveredByFullRefresh = false;
+    }
+
+    rememberCoveredBrowserRefreshState();
+
+    if (REFRESH_DIAGNOSTICS_ENABLED)
+      Activator.safeLogInfo(createRefreshLogMessage("FeedView.refresh", sequence, trigger, System.currentTimeMillis() - started, "delayRedraw=" + delayRedraw + ", updateLabels=" + updateLabels)); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
   }
 
   /**
@@ -2013,6 +2067,15 @@ public class FeedView extends EditorPart implements IReusableEditor {
 
     /* Only if Table Viewer is visible */
     if (isTableViewerVisible()) {
+      long started = 0L;
+      long sequence = 0L;
+      String trigger = null;
+      if (REFRESH_DIAGNOSTICS_ENABLED) {
+        started = System.currentTimeMillis();
+        sequence = FG_TABLE_REFRESH_SEQUENCE.incrementAndGet();
+        trigger = resolveRefreshTrigger();
+      }
+
       boolean groupingEnabled = fNewsGrouping.getType() != NewsGrouping.Type.NO_GROUPING;
 
       /* Remember Selection if grouping enabled */
@@ -2038,6 +2101,9 @@ public class FeedView extends EditorPart implements IReusableEditor {
         if (delayRedraw)
           fNewsTableControl.getViewer().getControl().getParent().setRedraw(true);
       }
+
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage("FeedView.refreshTableViewer", sequence, trigger, System.currentTimeMillis() - started, "delayRedraw=" + delayRedraw + ", updateLabels=" + updateLabels + ", grouping=" + groupingEnabled)); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
   }
 
@@ -2144,8 +2210,148 @@ public class FeedView extends EditorPart implements IReusableEditor {
       return;
 
     /* Refresh if browser is visible */
-    if (isBrowserViewerVisible())
+    if (isBrowserViewerVisible()) {
+      long started = 0L;
+      long sequence = 0L;
+      String trigger = null;
+      if (REFRESH_DIAGNOSTICS_ENABLED) {
+        started = System.currentTimeMillis();
+        sequence = FG_BROWSER_REFRESH_SEQUENCE.incrementAndGet();
+        trigger = resolveRefreshTrigger();
+      }
+
+      if (!fBrowserRefreshCoveredByFullRefresh && wasCoveredByRecentFullRefresh()) {
+        if (REFRESH_DIAGNOSTICS_ENABLED)
+          Activator.safeLogInfo(createRefreshLogMessage("FeedView.refreshBrowserViewer", sequence, trigger, 0L, "browserVisible=true skipped=true reason=covered-by-full-refresh")); //$NON-NLS-1$ //$NON-NLS-2$
+        return;
+      }
+
+      if (fNewsBrowserControl.getViewer().shouldSkipFullRefresh()) {
+        if (REFRESH_DIAGNOSTICS_ENABLED)
+          Activator.safeLogInfo(createRefreshLogMessage("FeedView.refreshBrowserViewer", sequence, trigger, 0L, "browserVisible=true skipped=true state=empty-browser")); //$NON-NLS-1$ //$NON-NLS-2$
+        return;
+      }
+
       fNewsBrowserControl.getViewer().refresh();
+
+      if (REFRESH_DIAGNOSTICS_ENABLED)
+        Activator.safeLogInfo(createRefreshLogMessage("FeedView.refreshBrowserViewer", sequence, trigger, System.currentTimeMillis() - started, "browserVisible=true")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+  }
+
+  private void rememberCoveredBrowserRefreshState() {
+    if (!isBrowserViewerVisible())
+      return;
+
+    fLastCoveredBrowserRefreshTime = System.currentTimeMillis();
+    fLastCoveredBrowserRefreshState = createBrowserRefreshStateSignature();
+  }
+
+  private boolean wasCoveredByRecentFullRefresh() {
+    if (fLastCoveredBrowserRefreshTime == 0L)
+      return false;
+
+    if (System.currentTimeMillis() - fLastCoveredBrowserRefreshTime > BROWSER_REFRESH_CHAIN_GUARD_DELAY)
+      return false;
+
+    String currentState = createBrowserRefreshStateSignature();
+    return currentState.equals(fLastCoveredBrowserRefreshState);
+  }
+
+  private String createBrowserRefreshStateSignature() {
+    StringBuilder state = new StringBuilder();
+    state.append("layout="); //$NON-NLS-1$
+    state.append(fLayout);
+    state.append(", browserVisible="); //$NON-NLS-1$
+    state.append(isBrowserViewerVisible());
+    state.append(", browserShowingNews="); //$NON-NLS-1$
+    state.append(isBrowserShowingNews());
+    state.append(", input="); //$NON-NLS-1$
+    state.append(describeBrowserRefreshInputState(fNewsBrowserControl.getViewer().getInput()));
+
+    CBrowser browser = fNewsBrowserControl.getViewer().getBrowser();
+    String browserUrl = ""; //$NON-NLS-1$
+    if (browser != null && browser.getControl() != null && !browser.getControl().isDisposed())
+      browserUrl = browser.getControl().getUrl();
+
+    state.append(", url="); //$NON-NLS-1$
+    state.append(browserUrl);
+    return state.toString();
+  }
+
+  private String describeBrowserRefreshInputState(Object input) {
+    if (input == null)
+      return "null"; //$NON-NLS-1$
+
+    if (input instanceof NewsReference)
+      return input.getClass().getName() + '#' + ((NewsReference) input).getId();
+
+    if (input instanceof IEntity)
+      return input.getClass().getName() + '#' + ((IEntity) input).getId();
+
+    return input.getClass().getName() + '@' + System.identityHashCode(input);
+  }
+
+  private String resolveRefreshTrigger() {
+    if (!REFRESH_DIAGNOSTICS_ENABLED)
+      return null;
+
+    StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+    for (StackTraceElement element : stack) {
+      String className = element.getClassName();
+      if (Thread.class.getName().equals(className) || FeedView.class.getName().equals(className))
+        continue;
+
+      return className + '#' + element.getMethodName() + ':' + element.getLineNumber();
+    }
+
+    return "unknown"; //$NON-NLS-1$
+  }
+
+  private String createRefreshLogMessage(String scope, long sequence, String trigger, long duration, String details) {
+    StringBuilder message = new StringBuilder();
+    message.append("[feed-refresh] "); //$NON-NLS-1$
+    message.append(scope);
+    message.append(" #"); //$NON-NLS-1$
+    message.append(sequence);
+    message.append(" trigger="); //$NON-NLS-1$
+    message.append(trigger != null ? trigger : "disabled"); //$NON-NLS-1$
+    message.append(" duration="); //$NON-NLS-1$
+    message.append(duration);
+    message.append("ms"); //$NON-NLS-1$
+    message.append(' ');
+    message.append(resolveRefreshContext());
+    if (details != null && details.length() > 0) {
+      message.append(' ');
+      message.append(details);
+    }
+    return message.toString();
+  }
+
+  private String resolveRefreshContext() {
+    StringBuilder context = new StringBuilder();
+    context.append("view="); //$NON-NLS-1$
+    context.append(System.identityHashCode(this));
+
+    if (fInput == null || fInput.getMark() == null) {
+      context.append(" mark=none"); //$NON-NLS-1$
+      return context.toString();
+    }
+
+    IMark mark = fInput.getMark();
+    context.append(" markType="); //$NON-NLS-1$
+    context.append(mark.getClass().getSimpleName());
+    context.append(" markId="); //$NON-NLS-1$
+    context.append(mark.getId());
+    context.append(" markName="); //$NON-NLS-1$
+    context.append(mark.getName());
+
+    return context.toString();
+  }
+
+  private static void logRefreshDiagnosticsConfigurationOnce() {
+    if (FG_REFRESH_DIAGNOSTICS_CONFIG_LOGGED.compareAndSet(false, true))
+      Activator.safeLogInfo("[feed-refresh] FeedView.diagnostics property=" + REFRESH_DIAGNOSTICS_PROPERTY + " enabled=" + REFRESH_DIAGNOSTICS_ENABLED); //$NON-NLS-1$ //$NON-NLS-2$
   }
 
   /**
@@ -2210,6 +2416,7 @@ public class FeedView extends EditorPart implements IReusableEditor {
    */
   @Override
   public void createPartControl(Composite parent) {
+    logRefreshDiagnosticsConfigurationOnce();
     fCreated = true;
     fParent = parent;
 

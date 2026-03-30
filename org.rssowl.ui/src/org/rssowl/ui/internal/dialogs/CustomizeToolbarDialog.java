@@ -730,9 +730,19 @@ public class CustomizeToolbarDialog extends Dialog {
 
   private void onMove(boolean up) {
     TableItem[] items = fItemViewer.getTable().getItems();
+    if (items.length == 0)
+      return;
 
     int[] toolbarItemIds = fPreferences.getIntegers(DefaultPreferences.TOOLBAR_ITEMS);
     int selectedIndex = fItemViewer.getTable().getSelectionIndex();
+    if (selectedIndex < 0)
+      return;
+
+    if (up && selectedIndex == 0)
+      return;
+
+    if (!up && selectedIndex == items.length - 1)
+      return;
 
     /* Move Up */
     if (up && selectedIndex > 0) {

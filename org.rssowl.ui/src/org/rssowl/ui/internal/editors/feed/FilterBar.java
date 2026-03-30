@@ -79,6 +79,7 @@ import org.rssowl.ui.internal.Controller;
 import org.rssowl.ui.internal.FolderNewsMark;
 import org.rssowl.ui.internal.OwlUI;
 import org.rssowl.ui.internal.OwlUI.Layout;
+import org.rssowl.ui.internal.Activator;
 import org.rssowl.ui.internal.dialogs.SearchMarkDialog;
 import org.rssowl.ui.internal.editors.feed.NewsFilter.SearchTarget;
 import org.rssowl.ui.internal.editors.feed.NewsFilter.Type;
@@ -99,6 +100,7 @@ import java.util.List;
  * @author bpasero
  */
 public class FilterBar {
+  private static final boolean REFRESH_DIAGNOSTICS_ENABLED = Boolean.getBoolean("rssowl.debug.feedRefresh"); //$NON-NLS-1$
 
   /* Action to Filter News */
   private static final String FILTER_ACTION = "org.rssowl.ui.internal.editors.feed.FilterAction"; //$NON-NLS-1$
@@ -126,6 +128,7 @@ public class FilterBar {
   private NewsFilter.Type fLastFilterType;
   private NewsGrouping.Type fLastGroupType;
   private boolean fSearchSelectAllOnce = true;
+  private volatile int fLatestFilterRefreshRequestId;
 
   /**
    * @param feedView
@@ -868,8 +871,21 @@ public class FilterBar {
 
     /* Refresh if set */
     if (refresh) {
+      final int refreshRequestId = ++fLatestFilterRefreshRequestId;
       final Runnable uiRunnable = new Runnable() {
         public void run() {
+          if (refreshRequestId != fLatestFilterRefreshRequestId) {
+            if (REFRESH_DIAGNOSTICS_ENABLED)
+              Activator.safeLogInfo("[feed-refresh] FilterBar.doFilter trigger=background-ui-callback skipped=true reason=superseded-filter-refresh request=" + refreshRequestId + " current=" + fLatestFilterRefreshRequestId); //$NON-NLS-1$ //$NON-NLS-2$
+            return;
+          }
+
+          if (fFeedView.getFilter().getType() != type) {
+            if (REFRESH_DIAGNOSTICS_ENABLED)
+              Activator.safeLogInfo("[feed-refresh] FilterBar.doFilter trigger=background-ui-callback skipped=true reason=stale-filter-refresh requested=" + type + " current=" + fFeedView.getFilter().getType()); //$NON-NLS-1$ //$NON-NLS-2$
+            return;
+          }
+
           if (browserRefreshRunnable != null) //If runnable is passed in, it will take care of refreshing
             fFeedView.getNewsBrowserControl().getViewer().setBlockRefresh(true);
           try {
