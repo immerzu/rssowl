@@ -23,6 +23,11 @@ RSS Owl is a powerful application to organize, search and read your RSS, RDF & A
 Highlights are saved searches, google reader sync, notifications, filters, fast fulltext search and a flexible, clean user interface.
 http://rssowl.org/
 
+Windows x64 note:
+-------------
+This project is available again as a Windows x64 build and runs with 64-bit Java.
+The current Windows x64 packages are shipped with a bundled 64-bit JRE.
+
 Build RSSOwl:
 -------------
 
