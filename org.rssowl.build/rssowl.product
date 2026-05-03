@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
 
-<product name="RSSOwl" id="org.rssowl.ui.product" application="org.rssowl.ui.rssowl" useFeatures="true" includeLaunchers="true">
+<product name="RSSOwl" uid="2.2.4" id="org.rssowl.ui.product" application="org.rssowl.ui.rssowl" useFeatures="true" includeLaunchers="true">
 
    <aboutInfo>
       <image path="/org.rssowl.ui/icons/product/about.gif"/>
@@ -26,7 +26,8 @@ http://www.rssowl.org/legal/epl-v10.html
    </configIni>
 
    <launcherArgs>
-      <vmArgs>-Xms15m -Xmx192m -Dosgi.requiredJavaVersion=1.5</vmArgs>
+      <vmArgs>-Xms15m -Xmx192m -Dosgi.requiredJavaVersion=1.5 -Djava.util.Arrays.useLegacyMergeSort=true</vmArgs>
+      <vmArgsLin>-Dorg.eclipse.swt.browser.DefaultType=mozilla</vmArgsLin>
    </launcherArgs>
 
    <windowImages i16="/org.rssowl.ui/icons/product/16x16.png" i32="/org.rssowl.ui/icons/product/32x32.png" i48="/org.rssowl.ui/icons/product/48x48.png" i64="/org.rssowl.ui/icons/product/64x64.png" i128="/org.rssowl.ui/icons/product/128x128.png"/>
