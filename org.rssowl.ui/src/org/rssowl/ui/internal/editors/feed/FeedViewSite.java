@@ -81,4 +81,25 @@ public class FeedViewSite implements IFeedViewSite {
 
     return Owl.getPreferenceService().getGlobalScope();
   }
+
+  /*
+   * @see org.rssowl.ui.internal.editors.feed.IFeedViewSite#isTranslationEnabled()
+   */
+  public boolean isTranslationEnabled() {
+    return fFeedView.isTranslationEnabled();
+  }
+
+  /*
+   * @see org.rssowl.ui.internal.editors.feed.IFeedViewSite#isTranslationRunning()
+   */
+  public boolean isTranslationRunning() {
+    return fFeedView.isTranslationRunning();
+  }
+
+  /*
+   * @see org.rssowl.ui.internal.editors.feed.IFeedViewSite#translateVisibleContent(java.lang.Runnable)
+   */
+  public void translateVisibleContent(Runnable onFinish) {
+    fFeedView.translateVisibleContent(onFinish);
+  }
 }

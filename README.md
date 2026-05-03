@@ -1,10 +1,16 @@
 Note:
 ====
-Please use [Xyrio/RSSOwlnix](https://github.com/Xyrio/RSSOwlnix) which is the new place for RSSOwl.
+This repository is the active fork workspace for a conservative **Windows x64**
+port of RSSOwl.
 
-RSSOwl is unmaintained and has several known vulnerabilities. Please do not use it any more.
+The Windows x64 packages built from this fork run with **64-bit Java** and ship
+with a bundled **64-bit Java 8 runtime** for the packaged application.
+
+The original upstream RSSOwl project is unmaintained and has known
+vulnerabilities, so treat this fork as a compatibility and maintenance
+continuation of that legacy codebase.
 ====
-See [#7](https://github.com/rssowl/RSSOwl/issues/7) and [#8](https://github.com/rssowl/RSSOwl/issues/8) for details about maintenance. Furthermore, RSSOwl does not work with Java 9, but it may still work with Java 8.
+See [#7](https://github.com/rssowl/RSSOwl/issues/7) and [#8](https://github.com/rssowl/RSSOwl/issues/8) for the original upstream maintenance discussion. The current fork keeps the product on Java 8 for compatibility and ships Windows x64 packages with a bundled 64-bit Java runtime.
 &nbsp;
 
 &nbsp;
@@ -31,7 +37,7 @@ The current Windows x64 packages are shipped with a bundled 64-bit JRE.
 Build RSSOwl:
 -------------
 
-Please refer to the description at https://github.com/bpasero/rssowl-target
+Please refer to the target-platform description at https://github.com/immerzu/rssowl-target
 
 RSSOwl links:
 -------------
@@ -41,7 +47,8 @@ RSSOwl links:
 * Forum: https://sourceforge.net/projects/rssowl/forums
 * Wiki: http://wiki.rssowl.org/index.php/Main_Page
 * Tutorials: http://tutorial.rssowl.org/ now obsolete since integrated to RSSOwl under "Help | Tutorial"
-* Build HowTo: https://github.com/bpasero/rssowl-target
+* Current fork: https://github.com/immerzu/rssowl
+* Build HowTo: https://github.com/immerzu/rssowl-target
 * Eclipse Marketplace: http://marketplace.eclipse.org/content/rssowl-powerful-rss-rdf-atom-news-feed-reader-google-reader-synchronization
 * Freecode.com: http://freecode.com/projects/rssowl
 
@@ -59,6 +66,6 @@ related projects:
 	* see translation repository here
 * https://code.google.com/p/rssowlspm/
 	* completed/finshed: added some features to RSSOwl and did some academic coding
-* forks on github.com: https://github.com/rssowl/RSSOwl/network/members
+* forks on github.com: https://github.com/immerzu/rssowl/network/members
 
 See LICENSE file for RSSOwl's License, Eclipse Public License v1.0

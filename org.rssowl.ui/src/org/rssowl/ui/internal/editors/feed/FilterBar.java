@@ -120,6 +120,7 @@ public class FilterBar {
   private ToolBarManager fClearQuicksearchToolBar;
   private ToolBarManager fHighlightToolBarManager;
   private IAction fHighlightSearchAction;
+  private IAction fTranslateAction;
   private FeedView fFeedView;
   private JobTracker fQuickSearchTracker;
   private Text fSearchInput;
@@ -204,6 +205,7 @@ public class FilterBar {
     createFilterBar();
     createGrouperBar();
     createLayoutBar();
+    createTranslateBar();
     fFilterGroupingLayoutToolBarManager.createControl(fContainer);
     fFilterGroupingLayoutToolBarManager.getControl().setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, true));
 
@@ -1194,6 +1196,29 @@ public class FilterBar {
     });
 
     ActionContributionItem item = new ActionContributionItem(newsLayout);
+    item.setMode(ActionContributionItem.MODE_FORCE_TEXT);
+
+    fFilterGroupingLayoutToolBarManager.add(item);
+  }
+
+  private void createTranslateBar() {
+    fTranslateAction = new Action(Messages.FilterBar_TRANSLATE) {
+      @Override
+      public void run() {
+        setEnabled(false);
+        fFilterGroupingLayoutToolBarManager.update(true);
+        fFeedView.translateVisibleContent(new Runnable() {
+          public void run() {
+            if (fTranslateAction != null) {
+              fTranslateAction.setEnabled(true);
+              fFilterGroupingLayoutToolBarManager.update(true);
+            }
+          }
+        });
+      }
+    };
+
+    ActionContributionItem item = new ActionContributionItem(fTranslateAction);
     item.setMode(ActionContributionItem.MODE_FORCE_TEXT);
 
     fFilterGroupingLayoutToolBarManager.add(item);

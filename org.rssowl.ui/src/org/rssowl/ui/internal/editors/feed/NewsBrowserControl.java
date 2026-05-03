@@ -397,8 +397,11 @@ public class NewsBrowserControl implements IFeedViewPart {
         }
 
         /* Set Elements as Input if 1 Item is selected */
-        else if (selection.size() == 1)
+        else if (selection.size() == 1) {
           setPartInput(selection.getFirstElement());
+          if (fFeedViewSite.isTranslationEnabled() && !fFeedViewSite.isTranslationRunning())
+            fFeedViewSite.translateVisibleContent(null);
+        }
       }
     };
     fFeedViewSite.getEditorSite().getPage().addSelectionListener(fSelectionListener);

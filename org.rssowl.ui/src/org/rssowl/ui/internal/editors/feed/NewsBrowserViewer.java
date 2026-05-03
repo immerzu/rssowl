@@ -114,6 +114,7 @@ import org.rssowl.ui.internal.undo.NewsStateOperation;
 import org.rssowl.ui.internal.undo.StickyOperation;
 import org.rssowl.ui.internal.undo.UndoStack;
 import org.rssowl.ui.internal.util.CBrowser;
+import org.rssowl.ui.internal.util.FeedTranslationManager;
 import org.rssowl.ui.internal.util.JobRunner;
 import org.rssowl.ui.internal.util.JobTracker;
 import org.rssowl.ui.internal.util.ModelUtils;
@@ -1184,6 +1185,10 @@ public class NewsBrowserViewer extends ContentViewer implements ILinkHandler {
         description = ((NewsBrowserLabelProvider) labelProvider).stripMediaTagsIfNecessary(description);
         description = ((NewsBrowserLabelProvider) labelProvider).highlightSearchTermsIfNecessary(description);
       }
+
+      String translatedDescription = FeedTranslationManager.getDefault().getTranslatedBrowserContent(description);
+      if (StringUtils.isSet(translatedDescription))
+        description = translatedDescription;
     }
 
     /* Content is not provided */

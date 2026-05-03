@@ -63,6 +63,7 @@ import org.rssowl.core.util.URIUtils;
 import org.rssowl.ui.internal.Application;
 import org.rssowl.ui.internal.EntityGroup;
 import org.rssowl.ui.internal.OwlUI;
+import org.rssowl.ui.internal.util.FeedTranslationManager;
 
 import java.text.DateFormat;
 import java.util.Date;
@@ -302,7 +303,7 @@ public class NewsTableLabelProvider extends OwnerDrawLabelProvider {
 
       switch (column) {
         case TITLE:
-          text = CoreUtils.getHeadline(news, true);
+          text = FeedTranslationManager.getDefault().getTranslatedText(CoreUtils.getHeadline(news, true));
           break;
 
         case DATE:
@@ -423,7 +424,7 @@ public class NewsTableLabelProvider extends OwnerDrawLabelProvider {
 
     /* Handle EntityGroup */
     else if (element instanceof EntityGroup && column == NewsColumn.TITLE)
-      text = ((EntityGroup) element).getName();
+      text = FeedTranslationManager.getDefault().getTranslatedText(((EntityGroup) element).getName());
 
     /* Make sure to normalize the Text for the Table */
     return text != null ? StringUtils.normalizeString(text) : null;

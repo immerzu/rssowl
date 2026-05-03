@@ -150,6 +150,7 @@ import org.rssowl.ui.internal.util.JobRunner;
 import org.rssowl.ui.internal.util.WidgetTreeNode;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -1760,6 +1761,20 @@ public class BookMarkExplorer extends ViewPart {
     fViewer.getControl().setFocus();
   }
 
+  public List<String> collectVisibleTranslationTexts() {
+    if (fViewer == null || fViewer.getControl().isDisposed())
+      return Collections.emptyList();
+
+    List<String> texts = new ArrayList<String>();
+    collectVisibleTranslationTexts(fViewer.getTree().getItems(), texts);
+    return texts;
+  }
+
+  public void refreshTranslationLabels() {
+    if (fViewer != null && fViewer.getControl() != null && !fViewer.getControl().isDisposed())
+      fViewer.refresh(false);
+  }
+
   /*
    * @see org.eclipse.ui.part.WorkbenchPart#dispose()
    */
@@ -1768,6 +1783,32 @@ public class BookMarkExplorer extends ViewPart {
     saveState();
     unregisterListeners();
     super.dispose();
+  }
+
+  private void collectVisibleTranslationTexts(TreeItem[] items, List<String> texts) {
+    if (items == null || texts == null)
+      return;
+
+    for (TreeItem item : items) {
+      if (item == null || item.isDisposed())
+        continue;
+
+      Object data = item.getData();
+      if (data instanceof IFolder)
+        addVisibleTranslationText(texts, ((IFolder) data).getName());
+      else if (data instanceof INewsMark)
+        addVisibleTranslationText(texts, ((INewsMark) data).getName());
+      else if (data instanceof EntityGroup)
+        addVisibleTranslationText(texts, ((EntityGroup) data).getName());
+
+      if (item.getExpanded())
+        collectVisibleTranslationTexts(item.getItems(), texts);
+    }
+  }
+
+  private void addVisibleTranslationText(List<String> texts, String text) {
+    if (StringUtils.isSet(text))
+      texts.add(StringUtils.normalizeString(text).trim());
   }
 
   /**

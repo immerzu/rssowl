@@ -42,12 +42,14 @@ public class Messages extends NLS {
   public static String FeedView_DOWNLOADING_FEED;
   public static String FeedView_PRINT_NEWS;
   public static String FeedView_PRINT_NEWS_HEADLINES_LAYOUT;
+  public static String FeedView_TRANSLATING_CONTENT;
   public static String FilterBar_CLEAR;
   public static String FilterBar_FILTER_NEWS;
   public static String FilterBar_GROUP_NEWS;
   public static String FilterBar_HIGHLIGHT;
   public static String FilterBar_QUICK_SEARCH;
   public static String FilterBar_SAVE_SEARCH;
+  public static String FilterBar_TRANSLATE;
   public static String NewsBrowserControl_ADDITIONAL_NEWS_INFO;
   public static String NewsBrowserControl_CLOSE;
   public static String NewsBrowserLabelProvider_ARCHIVE;

@@ -48,6 +48,7 @@ import org.rssowl.core.persist.INewsMark;
 import org.rssowl.core.persist.ISearchMark;
 import org.rssowl.ui.internal.EntityGroup;
 import org.rssowl.ui.internal.OwlUI;
+import org.rssowl.ui.internal.util.FeedTranslationManager;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -196,10 +197,11 @@ public class BookMarkLabelProvider extends CellLabelProvider {
         cell.setFont(fDefaultFont);
 
       /* Text */
+      String folderName = FeedTranslationManager.getDefault().getTranslatedText(folder.getName());
       if (unreadNewsCount > 0)
-        cell.setText(NLS.bind(Messages.BookMarkLabelProvider_NAME_UNREAD, folder.getName(), unreadNewsCount));
+        cell.setText(NLS.bind(Messages.BookMarkLabelProvider_NAME_UNREAD, folderName, unreadNewsCount));
       else
-        cell.setText(folder.getName());
+        cell.setText(folderName);
 
       /* Reset Foreground */
       cell.setForeground(null);
@@ -229,10 +231,11 @@ public class BookMarkLabelProvider extends CellLabelProvider {
         cell.setFont(fDefaultFont);
 
       /* Text */
+      String newsMarkName = FeedTranslationManager.getDefault().getTranslatedText(newsmark.getName());
       if (unreadNewsCount > 0)
-        cell.setText(NLS.bind(Messages.BookMarkLabelProvider_NAME_UNREAD, newsmark.getName(), unreadNewsCount));
+        cell.setText(NLS.bind(Messages.BookMarkLabelProvider_NAME_UNREAD, newsMarkName, unreadNewsCount));
       else
-        cell.setText(newsmark.getName());
+        cell.setText(newsMarkName);
 
       /* Background for IBookMark (TODO Support All News Marks) */
       if (newsmark instanceof IBookMark && fIndicateState)
@@ -261,7 +264,7 @@ public class BookMarkLabelProvider extends CellLabelProvider {
       EntityGroup group = (EntityGroup) element;
 
       /* Text */
-      cell.setText(group.getName());
+      cell.setText(FeedTranslationManager.getDefault().getTranslatedText(group.getName()));
 
       /* Image */
       cell.setImage(fGroupIcon);

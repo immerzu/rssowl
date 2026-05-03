@@ -36,6 +36,7 @@ import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.jface.util.SafeRunnable;
+import org.eclipse.jface.viewers.IBaseLabelProvider;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.StructuredSelection;
@@ -105,6 +106,7 @@ import org.rssowl.core.persist.event.SearchMarkEvent;
 import org.rssowl.core.persist.pref.IPreferenceScope;
 import org.rssowl.core.persist.reference.FeedLinkReference;
 import org.rssowl.core.persist.reference.NewsReference;
+import org.rssowl.core.persist.service.PersistenceException;
 import org.rssowl.core.util.CoreUtils;
 import org.rssowl.core.util.ITreeNode;
 import org.rssowl.core.util.LoggingSafeRunnable;
@@ -120,6 +122,7 @@ import org.rssowl.ui.internal.Controller.BookMarkLoadListener;
 import org.rssowl.ui.internal.FolderNewsMark;
 import org.rssowl.ui.internal.OwlUI;
 import org.rssowl.ui.internal.OwlUI.Layout;
+import org.rssowl.ui.internal.EntityGroup;
 import org.rssowl.ui.internal.actions.DeleteTypesAction;
 import org.rssowl.ui.internal.actions.FindAction;
 import org.rssowl.ui.internal.actions.ReloadTypesAction;
@@ -128,10 +131,12 @@ import org.rssowl.ui.internal.undo.NewsStateOperation;
 import org.rssowl.ui.internal.undo.UndoStack;
 import org.rssowl.ui.internal.util.CBrowser;
 import org.rssowl.ui.internal.util.EditorUtils;
+import org.rssowl.ui.internal.util.FeedTranslationManager;
 import org.rssowl.ui.internal.util.JobRunner;
 import org.rssowl.ui.internal.util.LayoutUtils;
 import org.rssowl.ui.internal.util.UIBackgroundJob;
 import org.rssowl.ui.internal.util.WidgetTreeNode;
+import org.rssowl.ui.internal.views.explorer.BookMarkExplorer;
 
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -144,6 +149,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -289,6 +295,10 @@ public class FeedView extends EditorPart implements IReusableEditor {
   private boolean fBrowserRefreshCoveredByFullRefresh;
   private long fLastCoveredBrowserRefreshTime;
   private String fLastCoveredBrowserRefreshState;
+  private volatile boolean fTranslationEnabled;
+  private volatile boolean fTranslationPendingAfterLoad;
+  private volatile boolean fTranslationRunning;
+  private volatile boolean fBookMarkLoading;
 
   /*
    * @see org.eclipse.ui.part.EditorPart#doSave(org.eclipse.core.runtime.IProgressMonitor)
@@ -807,13 +817,21 @@ public class FeedView extends EditorPart implements IReusableEditor {
     /* Show Busy when Input is loaded */
     fBookMarkLoadListener = new Controller.BookMarkLoadListener() {
       public void bookMarkAboutToLoad(IBookMark bookmark) {
-        if (!fIsDisposed && bookmark.equals(fInput.getMark()))
+        if (!fIsDisposed && bookmark.equals(fInput.getMark())) {
+          fBookMarkLoading = true;
+          if (fTranslationEnabled)
+            fTranslationPendingAfterLoad = true;
           showBusyLoading(true);
+        }
       }
 
       public void bookMarkDoneLoading(IBookMark bookmark) {
-        if (!fIsDisposed && bookmark.equals(fInput.getMark()))
+        if (!fIsDisposed && bookmark.equals(fInput.getMark())) {
+          fBookMarkLoading = false;
           showBusyLoading(false);
+          if (fTranslationEnabled || fTranslationPendingAfterLoad)
+            scheduleTranslationRefreshAfterLoad();
+        }
       }
     };
     Controller.getDefault().addBookMarkLoadListener(fBookMarkLoadListener);
@@ -1641,6 +1659,10 @@ public class FeedView extends EditorPart implements IReusableEditor {
 
   /* Set Input to Viewers */
   private void setInput(final INewsMark mark, final boolean reused) {
+    fTranslationEnabled = false;
+    fTranslationPendingAfterLoad = false;
+    fTranslationRunning = false;
+    fBookMarkLoading = false;
 
     /* Update Cache in Background and then apply to UI */
     JobRunner.runUIUpdater(new UIBackgroundJob(fParent) {
@@ -2729,5 +2751,221 @@ public class FeedView extends EditorPart implements IReusableEditor {
     }
 
     return false;
+  }
+
+  void translateVisibleContent(final Runnable onFinish) {
+    fTranslationEnabled = true;
+
+    if (fTranslationRunning) {
+      fTranslationPendingAfterLoad = true;
+      if (onFinish != null)
+        onFinish.run();
+      return;
+    }
+
+    fTranslationPendingAfterLoad = false;
+    final LinkedHashSet<String> textsToTranslate = collectVisibleTextsForTranslation();
+    if (textsToTranslate.isEmpty()) {
+      if (onFinish != null)
+        onFinish.run();
+      return;
+    }
+
+    fTranslationRunning = true;
+    final String sourceLanguage = resolveTranslationSourceLanguage();
+    UIBackgroundJob translationJob = new UIBackgroundJob(fParent, Messages.FeedView_TRANSLATING_CONTENT) {
+      @Override
+      protected void runInBackground(IProgressMonitor monitor) {
+        FeedTranslationManager.getDefault().translateMissingTexts(textsToTranslate, sourceLanguage, monitor);
+      }
+
+      @Override
+      protected void runInUI(IProgressMonitor monitor) {
+        try {
+          refreshTranslatedContent();
+        } finally {
+          fTranslationRunning = false;
+
+          if (onFinish != null)
+            onFinish.run();
+
+          if (fTranslationPendingAfterLoad && !fBookMarkLoading) {
+            fTranslationPendingAfterLoad = false;
+            scheduleTranslationRefreshAfterLoad();
+          }
+        }
+      }
+    };
+
+    JobRunner.runUIUpdater(translationJob, true);
+  }
+
+  private void scheduleTranslationRefreshAfterLoad() {
+    if (fIsDisposed || fParent == null || fParent.isDisposed())
+      return;
+
+    JobRunner.runInUIThread(BROWSER_OPERATIONS_DELAY, fParent, new Runnable() {
+      public void run() {
+        if (fIsDisposed || fParent == null || fParent.isDisposed())
+          return;
+
+        if (!fTranslationEnabled && !fTranslationPendingAfterLoad)
+          return;
+
+        translateVisibleContent(null);
+      }
+    });
+  }
+
+  private LinkedHashSet<String> collectVisibleTextsForTranslation() {
+    LinkedHashSet<String> texts = new LinkedHashSet<String>();
+
+    BookMarkExplorer explorer = OwlUI.getOpenedBookMarkExplorer();
+    if (explorer != null)
+      texts.addAll(explorer.collectVisibleTranslationTexts());
+
+    if (fNewsTableControl != null && fNewsTableControl.getViewer() != null) {
+      Tree tree = fNewsTableControl.getViewer().getTree();
+      if (tree != null && !tree.isDisposed())
+        collectVisibleTableTexts(tree.getItems(), texts);
+    }
+
+    collectVisibleBrowserTexts(texts);
+
+    return texts;
+  }
+
+  private void collectVisibleTableTexts(TreeItem[] items, Set<String> texts) {
+    if (items == null || texts == null)
+      return;
+
+    for (TreeItem item : items) {
+      if (item == null || item.isDisposed())
+        continue;
+
+      Object data = item.getData();
+      if (data instanceof INews) {
+        INews news = (INews) data;
+        addTranslationText(texts, CoreUtils.getHeadline(news, true));
+      } else if (data instanceof EntityGroup)
+        addTranslationText(texts, ((EntityGroup) data).getName());
+
+      if (item.getExpanded())
+        collectVisibleTableTexts(item.getItems(), texts);
+    }
+  }
+
+  private void collectVisibleBrowserTexts(Set<String> texts) {
+    if (fNewsBrowserControl == null || fNewsBrowserControl.getViewer() == null)
+      return;
+
+    INews news = null;
+    Object input = fNewsBrowserControl.getViewer().getInput();
+    if (input instanceof INews)
+      news = (INews) input;
+    else if (fNewsTableControl != null && fNewsTableControl.getViewer() != null) {
+      ISelection selection = fNewsTableControl.getViewer().getSelection();
+      if (selection instanceof IStructuredSelection) {
+        Object element = ((IStructuredSelection) selection).getFirstElement();
+        if (element instanceof INews)
+          news = (INews) element;
+      }
+    }
+
+    if (news == null)
+      return;
+
+    addTranslationText(texts, CoreUtils.getHeadline(news, false));
+    collectBrowserDescriptionText(news, texts);
+  }
+
+  private void collectBrowserDescriptionText(INews news, Set<String> texts) {
+    if (news == null || texts == null)
+      return;
+
+    IBaseLabelProvider labelProvider = null;
+    if (fNewsBrowserControl != null && fNewsBrowserControl.getViewer() != null)
+      labelProvider = fNewsBrowserControl.getViewer().getLabelProvider();
+
+    String description = news.getDescription();
+    if (labelProvider instanceof NewsBrowserLabelProvider)
+      description = ((NewsBrowserLabelProvider) labelProvider).stripMediaTagsIfNecessary(description);
+
+    addTranslationText(texts, FeedTranslationManager.getDefault().toPlainText(description));
+  }
+
+  private String resolveTranslationSourceLanguage() {
+    INews currentNews = resolveCurrentTranslationNews();
+    if (currentNews != null) {
+      String newsLanguage = resolveFeedLanguage(currentNews.getFeedReference());
+      if (StringUtils.isSet(newsLanguage))
+        return newsLanguage;
+    }
+
+    if (fInput != null && fInput.getMark() instanceof IBookMark)
+      return resolveFeedLanguage(((IBookMark) fInput.getMark()).getFeedLinkReference());
+
+    return null;
+  }
+
+  private INews resolveCurrentTranslationNews() {
+    if (fNewsBrowserControl != null && fNewsBrowserControl.getViewer() != null) {
+      Object input = fNewsBrowserControl.getViewer().getInput();
+      if (input instanceof INews)
+        return (INews) input;
+    }
+
+    if (fNewsTableControl != null && fNewsTableControl.getViewer() != null) {
+      ISelection selection = fNewsTableControl.getViewer().getSelection();
+      if (selection instanceof IStructuredSelection) {
+        Object element = ((IStructuredSelection) selection).getFirstElement();
+        if (element instanceof INews)
+          return (INews) element;
+      }
+    }
+
+    return null;
+  }
+
+  private String resolveFeedLanguage(FeedLinkReference feedReference) {
+    if (feedReference == null)
+      return null;
+
+    try {
+      IFeed feed = feedReference.resolve();
+      if (feed != null)
+        return feed.getLanguage();
+    } catch (PersistenceException e) {
+      Activator.getDefault().logError(e.getMessage(), e);
+    }
+
+    return null;
+  }
+
+  private void addTranslationText(Set<String> texts, String text) {
+    if (texts == null || !StringUtils.isSet(text))
+      return;
+
+    texts.add(StringUtils.normalizeString(text).trim());
+  }
+
+  private void refreshTranslatedContent() {
+    BookMarkExplorer explorer = OwlUI.getOpenedBookMarkExplorer();
+    if (explorer != null)
+      explorer.refreshTranslationLabels();
+
+    if (fNewsTableControl != null && fNewsTableControl.getViewer() != null)
+      refreshTableViewer(true, true);
+
+    if (fNewsBrowserControl != null && fNewsBrowserControl.getViewer() != null)
+      fNewsBrowserControl.getViewer().refresh();
+  }
+
+  boolean isTranslationEnabled() {
+    return fTranslationEnabled;
+  }
+
+  boolean isTranslationRunning() {
+    return fTranslationRunning;
   }
 }

@@ -77,6 +77,7 @@ import org.rssowl.ui.internal.FolderNewsMark.FolderNewsMarkReference;
 import org.rssowl.ui.internal.OwlUI;
 import org.rssowl.ui.internal.editors.feed.NewsBrowserViewer.PageLatch;
 import org.rssowl.ui.internal.util.CBrowser;
+import org.rssowl.ui.internal.util.FeedTranslationManager;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -850,7 +851,7 @@ public class NewsBrowserLabelProvider extends LabelProvider {
 
     /* Full content of News only added if the news is actually visible */
     if (isVisible) {
-      String newsTitle = CoreUtils.getHeadline(news, false);
+      String newsTitle = FeedTranslationManager.getDefault().getTranslatedText(CoreUtils.getHeadline(news, false));
       String newsLink = CoreUtils.getLink(news);
       boolean hasLink = newsLink != null;
 
@@ -1075,7 +1076,10 @@ public class NewsBrowserLabelProvider extends LabelProvider {
 
         /* Content is provided and should be displayed */
         if (!fHeadlinesOnly) {
-          if (StringUtils.isSet(description) && description != null && !description.equals(news.getTitle()))
+          String translatedDescription = FeedTranslationManager.getDefault().getTranslatedBrowserContent(description);
+          if (StringUtils.isSet(translatedDescription))
+            builder.append(translatedDescription);
+          else if (StringUtils.isSet(description) && description != null && !description.equals(news.getTitle()))
             builder.append(description);
 
           /* Content is not provided */
@@ -1390,7 +1394,8 @@ public class NewsBrowserLabelProvider extends LabelProvider {
     if (feedName == null) {
       IBookMark bm = CoreUtils.getBookMark(news.getFeedReference());
       if (bm != null) {
-        feedName = StringUtils.htmlEscape(bm.getName());
+        String translatedFeedName = FeedTranslationManager.getDefault().getTranslatedText(bm.getName());
+        feedName = StringUtils.htmlEscape(translatedFeedName);
         fMapFeedLinkToName.put(feedLinkAsText, feedName);
       }
     }

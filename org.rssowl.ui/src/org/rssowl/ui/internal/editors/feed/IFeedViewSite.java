@@ -58,4 +58,22 @@ public interface IFeedViewSite {
    * fallback to global preferences in any case.
    */
   IPreferenceScope getInputPreferences();
+
+  /**
+   * @return <code>true</code> if translation mode is enabled for this feed
+   * view.
+   */
+  boolean isTranslationEnabled();
+
+  /**
+   * @return <code>true</code> if a translation job is currently running.
+   */
+  boolean isTranslationRunning();
+
+  /**
+   * Translate the currently visible feed content.
+   *
+   * @param onFinish optional callback to run when translation work finished.
+   */
+  void translateVisibleContent(Runnable onFinish);
 }
