@@ -314,6 +314,7 @@ litigation.
          fragment="true"
          unpack="false"/>
 
+   <!-- Windows x64: org.eclipse.equinox.security.win32.x86_64 not shipped in Eclipse 3.4.2 Delta-Pack; Secure Storage runs without native fragment on x64. -->
    <plugin
          id="org.eclipse.equinox.security.win32.x86"
          os="win32"
@@ -322,7 +323,6 @@ litigation.
          install-size="0"
          version="0.0.0"
          fragment="true"
-   <!-- Windows x64: org.eclipse.equinox.security.win32.x86_64 not shipped in Eclipse 3.4.2 Delta-Pack; Secure Storage runs without native fragment on x64. -->
          unpack="false"/>
 
 </feature>

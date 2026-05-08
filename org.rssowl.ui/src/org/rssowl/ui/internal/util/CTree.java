@@ -242,16 +242,6 @@ public class CTree {
             column.setWidth(widthHint);
         }
 
-        /* Keep manually resized fill columns at their user-defined width */
-        else if (useManualFillLayout && data.getSize() == CColumnLayoutData.Size.FILL) {
-          int manualWidth = getManualFillWidth(column, data);
-          freeWidth -= manualWidth;
-          occupiedWidth += manualWidth;
-
-          if (column.getWidth() != manualWidth)
-            column.setWidth(manualWidth);
-        }
-
         /* Sum up the fill ratios for later use */
         else if (data.getSize() == CColumnLayoutData.Size.FILL) {
           totalFillSum += getFillWeight(column, data);
@@ -286,18 +276,6 @@ public class CTree {
     Integer manualWidth = fManualFillWeights.get(column);
     if (manualWidth != null && manualWidth.intValue() > 0)
       return manualWidth.intValue();
-
-    return data.getWidthHint();
-  }
-
-  private int getManualFillWidth(TreeColumn column, CColumnLayoutData data) {
-    Integer manualWidth = fManualFillWeights.get(column);
-    if (manualWidth != null && manualWidth.intValue() > 0)
-      return manualWidth.intValue();
-
-    int currentWidth = column.getWidth();
-    if (currentWidth > 0)
-      return currentWidth;
 
     return data.getWidthHint();
   }

@@ -82,6 +82,7 @@ import org.rssowl.core.Owl;
 import org.rssowl.core.internal.persist.pref.DefaultPreferences;
 import org.rssowl.core.persist.IEntity;
 import org.rssowl.core.persist.IFolderChild;
+import org.rssowl.core.persist.IBookMark;
 import org.rssowl.core.persist.ILabel;
 import org.rssowl.core.persist.INews;
 import org.rssowl.core.persist.INewsBin;
@@ -433,11 +434,17 @@ public class NewsTableControl implements IFeedViewPart {
     else
       model = NewsColumnViewModel.createGlobal();
 
+    /* A single bookmark already implies the feed context, so the icon-only
+     * Feed column only wastes horizontal space there.
+     */
+    if (input instanceof IBookMark)
+      model.removeColumn(NewsColumn.FEED);
+
     /* Synthetically add the "Feed" column if both "Feed" and "Location" not present and if not grouping by feed */
     if ((input instanceof ISearchMark) || (input instanceof INewsBin) || (input instanceof FolderNewsMark)) {
       if (!model.getColumns().contains(NewsColumn.FEED) && !model.getColumns().contains(NewsColumn.LOCATION)) {
         if (!isGroupingByFeed())
-          model.getColumns().add(1, NewsColumn.FEED);
+          model.addColumn(1, NewsColumn.FEED, true);
       }
     }
 

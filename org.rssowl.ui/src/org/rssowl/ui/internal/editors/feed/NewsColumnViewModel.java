@@ -183,6 +183,29 @@ public class NewsColumnViewModel {
   }
 
   /**
+   * Inserts a column at the requested index.
+   *
+   * @param index the preferred insertion index.
+   * @param column the column to add.
+   * @param moveExisting set to <code>true</code> to move an existing column to
+   * the requested index.
+   */
+  public void addColumn(int index, NewsColumn column, boolean moveExisting) {
+    int existingIndex = fColumns.indexOf(column);
+    if (existingIndex >= 0) {
+      if (!moveExisting)
+        return;
+
+      fColumns.remove(existingIndex);
+      if (existingIndex < index)
+        index--;
+    }
+
+    int insertionIndex = Math.max(0, Math.min(index, fColumns.size()));
+    fColumns.add(insertionIndex, column);
+  }
+
+  /**
    * @param column the column to remove from the model.
    */
   public void removeColumn(NewsColumn column) {
