@@ -11,7 +11,7 @@ Desktop.ini
 .metadata/
 .settings/
 .classpath
-.project
+/.project
 *.launch
 
 ###################################
